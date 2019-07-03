@@ -1,7 +1,8 @@
 import json
 import requests
 import time
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+import math
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, File
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
 
 
@@ -43,7 +44,8 @@ with open("discarded.json", "r") as read_file:
 current_review = {}
 
 # post ids
-post_id = 0
+with open("post_id.json", "r") as read_file:
+    post_id = json.load(read_file)[0]
 
 
 def write_to_review():
@@ -60,9 +62,15 @@ def write_discarded():
     with open("discarded.json", "w") as write_file:
         json.dump(discarded, write_file)
 
+def write_post_id():
+    with open("post_id.json", "w") as write_file:
+        post_id_arr = [post_id]
+        json.dump(post_id_arr, write_file)
+
 
 def send_to_server():
     url = "http://people.ee.ethz.ch/~zarron/prag/blog_api_send.php"
+    photo_url = "http://people.ee.ethz.ch/~zarron/prag/blog_api_photo.php"
 
     # load passwort
     with open("password.json", "r") as read_file:
@@ -75,9 +83,22 @@ def send_to_server():
 
     try:
         r = requests.post(url, data=payload)
-        #print(r.text)
+        print(r.text)
+        photos_to_send = json.loads(r.text)
     except:
         print("failed")
+        return
+
+    if len(photos_to_send) != 0:
+        # send photos
+        print("sending photos to server")
+        for id in photos_to_send:
+            with open(str(id) + '.jpg', 'rb') as f:
+                try:
+                    r = requests.post(photo_url, data=password ,files={str(id) + '.jpg': f})
+                except:
+                    print("could not send photo")
+
 
 
 def start(bot, update):
@@ -91,7 +112,7 @@ def start(bot, update):
 
 
 def new_post(bot, update):
-    bot.send_message(update.message.from_user.id, text="Send me the text to post")
+    bot.send_message(update.message.from_user.id, text="Send me the text or photo to post")
     next_actions[update.message.from_user.id] = "new_post"
 
 
@@ -103,10 +124,11 @@ def answer_handler(bot, update):
         localtime = time.asctime( time.localtime(time.time()) )
         global post_id
         post_id = post_id + 1
-        new_post = {"id": post_id, "user_id": update.message.from_user.id, "name": update.message.from_user.first_name, "content": update.message.text, "time": localtime, "photo": []}
+        new_post = {"id": post_id, "user_id": update.message.from_user.id, "name": update.message.from_user.first_name, "content": update.message.text, "time": localtime, "photo": False}
         to_review.append(new_post)
         bot.send_message(update.message.from_user.id, text="Thanks for your post, it will be reviewed")
         write_to_review()
+        write_post_id()
         return
 
     bot.send_message(update.message.from_user.id, text="Use a command!")
@@ -123,7 +145,37 @@ def add_photo(bot, update):
 
 
 def photo_handler(bot, update):
-    print("got photo")
+    next_action = next_actions[update.message.from_user.id]
+    next_actions[update.message.from_user.id] = ""
+
+    print("handle photo")
+
+    if next_action == "new_post":
+        # setup new post
+        localtime = time.asctime(time.localtime(time.time()))
+        global post_id
+        post_id = post_id + 1
+
+        # download photo
+        # choose photo with medium resolution
+        index = len(update.message.photo)/2
+        print(index)
+        file = bot.getFile(update.message.photo[math.floor(index)].file_id)
+        print(file)
+        path = "images/" + str(post_id) + ".jpg"
+        print(path)
+        file.download(custom_path=path)
+
+        # add photo
+        new_post = {"id": post_id, "user_id": update.message.from_user.id, "name": update.message.from_user.first_name, "content": update.message.caption, "time": localtime, "photo": True}
+        to_review.append(new_post)
+        write_to_review()
+        write_post_id()
+
+        bot.send_message(update.message.from_user.id, text="Thanks, your photo will be reviewed!")
+        return
+
+    bot.send_message(update.message.from_user.id, text="Use a \\new to make a new post")
 
 
 def review(bot, update):
