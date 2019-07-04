@@ -72,7 +72,7 @@ def send_to_server():
     url = "http://people.ee.ethz.ch/~zarron/prag/blog_api_send.php"
     photo_url = "http://people.ee.ethz.ch/~zarron/prag/blog_api_photo.php"
 
-    # load passwort
+    # load password
     with open("password.json", "r") as read_file:
         password = json.load(read_file)[0]
 
@@ -89,13 +89,17 @@ def send_to_server():
         print("failed")
         return
 
+    # resend photos
     if len(photos_to_send) != 0:
         # send photos
         print("sending photos to server")
         for id in photos_to_send:
-            with open(str(id) + '.jpg', 'rb') as f:
+            photo_payload = {"id": id, "password": password}
+            with open("images/" + str(id) + '.jpg', 'rb') as f:
                 try:
-                    r = requests.post(photo_url, data=password ,files={str(id) + '.jpg': f})
+                    r = requests.post(photo_url, data=photo_payload, files={'file': f})
+                    print("finito")
+                    print(r.text)
                 except:
                     print("could not send photo")
 
@@ -159,11 +163,8 @@ def photo_handler(bot, update):
         # download photo
         # choose photo with medium resolution
         index = len(update.message.photo)/2
-        print(index)
         file = bot.getFile(update.message.photo[math.floor(index)].file_id)
-        print(file)
         path = "images/" + str(post_id) + ".jpg"
-        print(path)
         file.download(custom_path=path)
 
         # add photo
@@ -175,7 +176,7 @@ def photo_handler(bot, update):
         bot.send_message(update.message.from_user.id, text="Thanks, your photo will be reviewed!")
         return
 
-    bot.send_message(update.message.from_user.id, text="Use a \\new to make a new post")
+    bot.send_message(update.message.from_user.id, text="Use a /new to make a new post")
 
 
 def review(bot, update):
@@ -183,6 +184,8 @@ def review(bot, update):
         if len(to_review) != 0:
             current_review[update.message.from_user.id] = to_review.pop(0)
             text = current_review[update.message.from_user.id]["content"]
+            post_id = current_review[update.message.from_user.id]["id"]
+            name = current_review[update.message.from_user.id]["name"]
             # setup answer buttons
             keyboard = []
             row1 = []
@@ -190,7 +193,11 @@ def review(bot, update):
             row1.append(InlineKeyboardButton("discard", callback_data="{} {}".format("review", "discard")))
             row1.append(InlineKeyboardButton("view later", callback_data="{} {}".format("review", "later")))
             keyboard.append(row1)
-            bot.send_message(chat_id=update.message.chat_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
+            bot.send_message(chat_id=update.message.chat_id, text=name+":")
+            if current_review[update.message.from_user.id]["photo"]:
+                bot.send_photo(update.message.from_user.id, photo=open("images/"+str(post_id) + ".jpg", 'rb'), caption=text, reply_markup=InlineKeyboardMarkup(keyboard))
+            else:
+                bot.send_message(chat_id=update.message.chat_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
             write_to_review()
         else:
             bot.send_message(update.message.from_user.id, text="No posts to review")
